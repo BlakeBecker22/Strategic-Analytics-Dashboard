@@ -19,10 +19,10 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "Northstar Analytics Dashboard"
+args = "Mzansi Metrics Dashboard"
 
 [[workflows.workflow]]
-name = "Northstar Analytics Dashboard"
+name = "Mzansi Metrics Dashboard"
 author = "agent"
 
 [workflows.workflow.metadata]

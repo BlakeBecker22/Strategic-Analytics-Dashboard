@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Mzansi Metrics"
+description = "A South African rand analytics dashboard for uploading CSV data, exploring retail, marketing, and SaaS samples, tracking KPIs, and reading automated strategic insights."
+version = "1.0.0"
+id = "artifacts/northstar-dashboard"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 23116
+
+[services.development]
+run = "cd ../.. && streamlit run app.py --server.port 23116 --server.address 0.0.0.0 --server.headless=true"
+
+[services.production.run]
+args = ["sh", "-c", "cd ../.. && uv run --project . streamlit run app.py --server.port 23116 --server.address 0.0.0.0 --server.headless=true --server.enableCORS=false --server.enableWebsocketCompression=false"]
+
+[services.production.run.env]
+PORT = "23116"
+
+[services.production.health.startup]
+path = "/_stcore/health"
+
+[services.env]
+PORT = "23116"
+BASE_PATH = "/"

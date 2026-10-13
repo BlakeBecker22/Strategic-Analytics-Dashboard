@@ -1,6 +1,6 @@
-# Northstar Analytics Dashboard
+# Mzansi Metrics
 
-An interactive Streamlit dashboard for exploring CSV or sample business data, tracking KPIs, and surfacing rule-based growth opportunities.
+An interactive Streamlit dashboard for exploring CSV or sample business data in South African rand, tracking KPIs, and surfacing rule-based growth opportunities.
 
 ## Run & Operate
 

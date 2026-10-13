@@ -11,8 +11,8 @@ import streamlit as st
 
 
 st.set_page_config(
-    page_title="Northstar | Analytics",
-    page_icon="N",
+    page_title="Mzansi Metrics | Analytics",
+    page_icon="M",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -23,6 +23,7 @@ PALETTE = {
     "warning": "#E3A84B",
     "danger": "#E06C75",
 }
+SAMPLE_ZAR_SCALE = 18.0
 
 
 def build_sample_data() -> dict[str, pd.DataFrame]:
@@ -160,11 +161,17 @@ def build_sample_data() -> dict[str, pd.DataFrame]:
                     }
                 )
 
-    return {
+    datasets = {
         "Retail sales": pd.DataFrame(retail_rows),
         "Marketing campaigns": pd.DataFrame(marketing_rows),
         "SaaS subscriptions": pd.DataFrame(saas_rows),
     }
+    # The demo inputs use USD-scale amounts; rebase sample money values with a
+    # fixed illustrative factor. Uploaded CSV values are never rescaled.
+    for sample in datasets.values():
+        for column in ("revenue", "ad_spend"):
+            sample[column] = (sample[column] * SAMPLE_ZAR_SCALE).round(2)
+    return datasets
 
 
 ALIASES = {
@@ -218,10 +225,28 @@ def resolve_columns(frame: pd.DataFrame) -> dict[str, Any | None]:
 def numeric_series(frame: pd.DataFrame, column: Any | None) -> pd.Series | None:
     if column is None:
         return None
-    return pd.to_numeric(
-        frame[column].astype(str).str.replace(r"[$,%\s,]", "", regex=True),
-        errors="coerce",
-    )
+
+    def normalize_amount(value: Any) -> str:
+        if pd.isna(value):
+            return ""
+        text = str(value).strip()
+        text = re.sub(r"(?i)\bZAR\b|(?<![A-Z])R(?=\s*[\d.,-])", "", text)
+        text = re.sub(r"[$%\s\u00a0]", "", text)
+
+        if "," in text and "." in text:
+            if text.rfind(",") > text.rfind("."):
+                text = text.replace(".", "").replace(",", ".")
+            else:
+                text = text.replace(",", "")
+        elif "," in text:
+            parts = text.split(",")
+            if len(parts[-1]) in (1, 2):
+                text = "".join(parts[:-1]) + "." + parts[-1]
+            else:
+                text = "".join(parts)
+        return text
+
+    return pd.to_numeric(frame[column].map(normalize_amount), errors="coerce")
 
 
 def prepare_data(frame: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, Any | None]]:
@@ -251,10 +276,22 @@ def fmt_money(value: float | int) -> str:
         return "—"
     absolute = abs(float(value))
     if absolute >= 1_000_000:
-        return f"${value / 1_000_000:,.2f}M"
+        return f"R {format_zar_number(value / 1_000_000, 2)}M"
     if absolute >= 10_000:
-        return f"${value / 1_000:,.1f}K"
-    return f"${value:,.0f}"
+        return f"R {format_zar_number(value / 1_000, 1)}K"
+    return f"R {format_zar_number(value, 0)}"
+
+
+def format_zar_number(value: float | int, decimals: int = 0) -> str:
+    """Format numbers with South African decimal and thousands separators."""
+    formatted = f"{value:,.{decimals}f}"
+    return formatted.replace(",", "\0").replace(".", ",").replace("\0", " ")
+
+
+def fmt_table_money(value: float | int) -> str:
+    if pd.isna(value):
+        return "—"
+    return f"R {format_zar_number(value, 2)}"
 
 
 def fmt_number(value: float | int) -> str:
@@ -437,6 +474,7 @@ def chart_layout(mode: str, title: str) -> dict[str, Any]:
         "plot_bgcolor": "rgba(0,0,0,0)",
         "font": {"family": "Inter, ui-sans-serif, system-ui", "color": muted, "size": 11},
         "margin": {"l": 10, "r": 18, "t": 46, "b": 10},
+        "separators": ", ",
         "xaxis": {"gridcolor": grid, "zerolinecolor": grid},
         "yaxis": {"gridcolor": grid, "zerolinecolor": grid},
         "legend": {"orientation": "h", "y": -0.2},
@@ -561,7 +599,7 @@ def main() -> None:
 
     st.markdown(theme_css(st.session_state.theme), unsafe_allow_html=True)
     with st.sidebar:
-        st.markdown("### NORTHSTAR")
+        st.markdown("### MZANSI METRICS")
         st.caption("Data analytics & strategic insights")
         st.divider()
         st.markdown("#### Choose your data")
@@ -606,14 +644,17 @@ def main() -> None:
         if selected_theme != st.session_state.theme:
             st.session_state.theme = selected_theme
             st.rerun()
-        st.caption("CSV files are analyzed in this session and are not saved.")
+        st.caption(
+            "Currency: ZAR (R). Sample amounts use a fixed illustrative 18× scale; "
+            "uploaded values are shown as provided and assumed to be in rands."
+        )
 
     title = "Your data, in focus."
     subtitle = "A clear view of performance, momentum, and where to act next."
     left, right = st.columns([5, 1.25], vertical_alignment="center")
     with left:
         st.markdown(
-            f'<div class="hero-kicker">NORTHSTAR / STRATEGY OVERVIEW</div>'
+            f'<div class="hero-kicker">MZANSI METRICS / STRATEGY OVERVIEW</div>'
             f'<h1 class="hero-title">{title}</h1>'
             f'<p class="hero-subtitle">{subtitle}</p>',
             unsafe_allow_html=True,
@@ -762,8 +803,11 @@ def main() -> None:
         else:
             trend_grouped = trend.groupby("_month", as_index=False)["_revenue"].sum()
             trend_fig = px.line(trend_grouped, x="_month", y="_revenue", markers=True)
+        trend_fig.update_traces(
+            hovertemplate="%{x|%b %Y}<br>Revenue: R %{y:,.2f}<extra>%{fullData.name}</extra>"
+        )
         trend_fig.update_layout(**chart_layout(st.session_state.theme, "Revenue over time"))
-        trend_fig.update_yaxes(title=None, tickprefix="$", separatethousands=True)
+        trend_fig.update_yaxes(title=None, tickprefix="R ", separatethousands=True)
         trend_fig.update_xaxes(title=None)
         with chart_columns[0]:
             st.plotly_chart(trend_fig, use_container_width=True, config={"displayModeBar": False})
@@ -785,9 +829,12 @@ def main() -> None:
             color="_revenue",
             color_continuous_scale=[PALETTE["accent"], PALETTE["accent_2"]],
         )
+        category_fig.update_traces(
+            hovertemplate="%{y}<br>Revenue: R %{x:,.2f}<extra></extra>"
+        )
         category_fig.update_layout(**chart_layout(st.session_state.theme, "Revenue by segment"))
         category_fig.update_layout(coloraxis_showscale=False)
-        category_fig.update_xaxes(title=None, tickprefix="$")
+        category_fig.update_xaxes(title=None, tickprefix="R ", separatethousands=True)
         category_fig.update_yaxes(title=None)
         with chart_columns[1]:
             st.plotly_chart(category_fig, use_container_width=True, config={"displayModeBar": False})
@@ -812,10 +859,21 @@ def main() -> None:
             opacity=0.78,
         )
         scatter_fig.update_layout(**chart_layout(st.session_state.theme, "Spend & performance correlation"))
-        scatter_fig.update_xaxes(title=x_label, tickprefix="$" if x_metric == "_ad_spend" else "")
+        scatter_x_value = "R %{x:,.2f}" if x_metric == "_ad_spend" else "%{x:,.0f}"
+        scatter_y_value = "R %{y:,.2f}" if y_metric == "_revenue" else "%{y:,.0f}"
+        scatter_hover = f"{x_label}: {scatter_x_value}<br>{'Revenue' if y_metric == '_revenue' else 'Orders / conversions'}: {scatter_y_value}"
+        if "_category" in scatter_data:
+            scatter_hover += "<br>Segment: %{hovertext}"
+        scatter_fig.update_traces(hovertemplate=f"{scatter_hover}<extra>%{{fullData.name}}</extra>")
+        scatter_fig.update_xaxes(
+            title=x_label,
+            tickprefix="R " if x_metric == "_ad_spend" else "",
+            separatethousands=True,
+        )
         scatter_fig.update_yaxes(
             title="Revenue" if y_metric == "_revenue" else "Orders / conversions",
-            tickprefix="$" if y_metric == "_revenue" else "",
+            tickprefix="R " if y_metric == "_revenue" else "",
+            separatethousands=True,
         )
         with chart_columns[2]:
             st.plotly_chart(scatter_fig, use_container_width=True, config={"displayModeBar": False})
@@ -834,9 +892,18 @@ def main() -> None:
         st.markdown('<div class="section-label">Data preview</div>', unsafe_allow_html=True)
         with st.container(border=True):
             st.caption("First 8 rows after filters")
+            preview = filtered.drop(
+                columns=["_date", "_revenue", "_orders", "_sessions", "_ad_spend"],
+                errors="ignore",
+            ).head(8).copy()
+            for metric_name, source_name in (
+                ("_revenue", columns["revenue"]),
+                ("_ad_spend", columns["ad_spend"]),
+            ):
+                if source_name is not None and source_name in preview and metric_name in filtered:
+                    preview[source_name] = filtered[metric_name].head(8).map(fmt_table_money)
             st.dataframe(
-                filtered.drop(columns=["_date", "_revenue", "_orders", "_sessions", "_ad_spend"], errors="ignore")
-                .head(8),
+                preview,
                 use_container_width=True,
                 hide_index=True,
             )
